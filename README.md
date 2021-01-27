@@ -1,6 +1,8 @@
 # Painted-DOF
 A Depth of Field shader for reshade which can run in bokeh or "painted" mode.
 
+To install, simple download DOF_Paint.fx into reshade-shaders/Shaders. Inside reshade, unable "DOF" or "DOF_Paint" for the effect.
+
 In reshade, this shader supplies two tequniques, "DOF", and "DOF_Paint". "DOF" creates a more realistic bokeh-like background blur, while "DOF_Paint" creates a more paint-like artistic look. Both effects can be layered, creating some interesting visuals.
 
 The "DOF" shader uses a poisson kernel to sample surrounding pixels, creating a bokeh blur. The user can change the specific kernel, either to tweak performance/quality, or to change to shape. Included by default are three shapes (circle, diamond, and hexagon) with three quality presets each, along with a "painted" kernel intended to look like paint strokes. This kernel works best in the "painted" mode.
