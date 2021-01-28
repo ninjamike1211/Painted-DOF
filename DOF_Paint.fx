@@ -30,7 +30,7 @@ uniform int focusPointSize <
 	ui_min = 0; ui_max = BUFFER_HEIGHT;
 	ui_label = "Auto-focus area size";
 	ui_tooltip = "Size of the are to look at when focusing.\nAuto-focus will focus on the closest object in the area.\n0 will focus on a single point.\nHigher values will significantly decrease performance.";
-> = 0;
+> = 100;
 
 uniform float2 focusPoint <
 	ui_type = "drag";
