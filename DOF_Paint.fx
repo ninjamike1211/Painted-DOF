@@ -10,7 +10,7 @@ uniform float blurMult <
 	ui_step = 0.01;
 	ui_label = "Blur size";
 	ui_tooltip = "Value multiplied to blur radius.\n0 means no blur, higher values increase blur radius.\nNon 0 values do not impact performance.";
-> = 1.0;
+> = 10.0;
 
 uniform float focusDist <
     ui_type = "drag";
