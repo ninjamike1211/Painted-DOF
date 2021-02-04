@@ -17,7 +17,7 @@ uniform float focusDist <
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Manual focus distance";
 	ui_tooltip = "Distance to focus on when using manual focus.\n0 means closest to camera, 1 means farthest from camera.\nNo consistant impact on performance.";
-> = 0.0;
+> = 0.5;
 
 uniform bool autoFocus <
 	ui_type = "radio";
@@ -65,8 +65,8 @@ uniform bool mouseFocus <
 > = false;
 
 // Buffer which stores CoC values
-texture cocBuffer{ Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;  Format = R16F; };
-sampler2D cocSampler{ Texture = cocBuffer; };
+texture cocBuffer{ Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;  Format = R16F; MipLevels = 0;};
+sampler2D cocSampler{ Texture = cocBuffer; MipFilter = POINT;};
 
 // Kernels for blur effect
 static const float2 kernel[244] = {
@@ -391,7 +391,7 @@ float Calc_CoC_PS(float4 position : SV_Position, float2 texcoord : TexCoord, flo
 // Blur pixel shader, applies blur to final image, reads CoC value from cocBuffer
 float3 BlurEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target
 {
-	float size = tex2D(cocSampler, texcoord).r;
+	float size = tex2Dfetch(cocSampler, position.xy).r;
 
 	if (size == 0.0)
 		discard;
@@ -400,9 +400,10 @@ float3 BlurEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) 
 	float weight = 0.0;
 
 	for (int i = kernelOffsets[blurType]; i < kernelLengths[blurType]; i++) {
-		float cocWeight = tex2D(cocSampler, texcoord + kernel[i] * size).r;
+		float2 pos = position.xy + kernel[i] * size * ReShade::ScreenSize;
+		float cocWeight = tex2Dfetch(cocSampler, pos).r;
 		weight += cocWeight;
-		col += tex2D(ReShade::BackBuffer, texcoord + kernel[i] * size).rgb * cocWeight;
+		col += tex2Dfetch(ReShade::BackBuffer, pos).rgb * cocWeight;
 	}
 
 	col /= weight;
@@ -416,7 +417,7 @@ float3 BlurEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) 
 // Blur pixel shader, applies blur to final image, reads CoC value from cocBuffer
 float3 DilateEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target
 {
-	float size = tex2D(cocSampler, texcoord).r;
+	float size = tex2Dfetch(cocSampler, position).r;
 
 	if (size == 0.0)
 		discard;
@@ -425,18 +426,18 @@ float3 DilateEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord
 	float3 maxCol;
 
 	for (int i = kernelOffsets[blurType]; i < kernelLengths[blurType]; i++) {
-		float3 col = tex2D(ReShade::BackBuffer, texcoord + kernel[i] * size).rgb;
-		float val = dot(col, float3(0.21, 0.72, 0.07)) * tex2D(cocSampler, texcoord + kernel[i] * size).r;
+		float3 col = tex2Dfetch(ReShade::BackBuffer, position + kernel[i] * size * ReShade::ScreenSize).rgb;
+		float val = dot(col, float3(0.21, 0.72, 0.07));
 		if (val > maxVal) {
 			maxVal = val;
 			maxCol = col;
 		}
 	}
 
-	if (showFocusArea && abs(length((texcoord - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
+	if (showFocusArea && abs(length((position - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
 		maxCol *= float3(4.0, 4.0, 4.0);
 
-	return lerp(tex2D(ReShade::BackBuffer, texcoord).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
+	return lerp(tex2Dfetch(ReShade::BackBuffer, position).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
 }
 
 technique DOF < ui_tooltip = "DOF which blurs the background or foreground while keeping the character in focus."; >
