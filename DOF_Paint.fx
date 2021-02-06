@@ -370,7 +370,7 @@ float CalcFocus_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : 
 
 	if (autoFocus) {
 		if (mouseFocus) {
-			focusTo = ReShade::GetLinearizedDepth(mouse_point / float2(BUFFER_WIDTH, BUFFER_HEIGHT));
+			return ReShade::GetLinearizedDepth(mouse_point / float2(BUFFER_WIDTH, BUFFER_HEIGHT));
 		}
 		else {
 			focusTo = 1.0;
@@ -378,15 +378,14 @@ float CalcFocus_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : 
 				float depth = ReShade::GetLinearizedDepth(focusPoint + kernel[i] * focusPointSize);
 				focusTo = min(focusTo, depth);
 			}
+			if (focusTo == focusFrom)
+				return focusTo;
+
+			float change = (focusTo - focusFrom) / abs(focusTo - focusFrom);
+			change *= (abs(focusTo - focusFrom) > frametime / focusSpeed) ? (frametime / focusSpeed) : abs(focusTo - focusFrom);
+
+			return clamp(focusFrom + change, 0.0, 1.0);
 		}
-
-		if (focusTo == focusFrom)
-			return focusTo;
-
-		float change = (focusTo - focusFrom) / abs(focusTo - focusFrom);
-		change *= (abs(focusTo - focusFrom) > frametime / focusSpeed) ? (frametime / focusSpeed) : abs(focusTo - focusFrom);
-
-		return clamp(focusFrom + change, 0.0, 1.0);
 	}
 	else
 		return focusDist;
