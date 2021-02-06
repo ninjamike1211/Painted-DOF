@@ -2,6 +2,7 @@
 #include "ReShadeUI.fxh"
 
 uniform float2 mouse_point < source = "mousepoint"; > ;
+uniform float frametime < source = "frametime"; > ;
 
 // UI uniforms
 uniform float blurMult <
@@ -10,7 +11,7 @@ uniform float blurMult <
 	ui_step = 0.01;
 	ui_label = "Blur size";
 	ui_tooltip = "Value multiplied to blur radius.\n0 means no blur, higher values increase blur radius.\nNon 0 values do not impact performance.";
-> = 10.0;
+> = 5.0;
 
 uniform float focusDist <
     ui_type = "drag";
@@ -24,6 +25,13 @@ uniform bool autoFocus <
 	ui_label = "Enable auto-focus";
 	ui_tooltip = "Enables auto-focus, which focuses on a specific point/area.\nWhen disabled, focuses on the depth from manual focus distance.\nPerformance impact is relative to focus are size, and can be significant.";
 > = true;
+
+uniform float focusSpeed <
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_label = "Focus speed";
+	ui_tooltip = "Speed the auto focus will transition different focuses, in milliseconds.\n0 means instant transition. No performance impact.";
+> = 500.0;
 
 uniform int focusPointSize <
 	ui_type = "drag";
@@ -50,7 +58,7 @@ uniform bool disableNear <
 	ui_type = "radio";
 	ui_label = "Disable foreground blur";
 	ui_tooltip = "Disables foreground bluring, so that only objects in the foreground are always in focus.\nCan improve performance depending on the scene.";
-> = true;
+> = false;
 
 uniform bool showFocusArea <
 	ui_type = "radio";
@@ -67,6 +75,13 @@ uniform bool mouseFocus <
 // Buffer which stores CoC values
 texture cocBuffer{ Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;  Format = R16F; MipLevels = 0;};
 sampler2D cocSampler{ Texture = cocBuffer; MipFilter = POINT;};
+
+// Buffers and samplers which store and read the focus value in a 1x1 texture (used like a float)
+texture2D focusTex{ Width = 1; Height = 1; Format = R16F; };
+texture2D focusTexPrev{ Width = 1; Height = 1; Format = R16F; };
+
+sampler2D focusTexSampler{ Texture = focusTex; };
+sampler2D focusTexPrevSampler{ Texture = focusTexPrev; };
 
 // Kernels for blur effect
 static const float2 kernel[244] = {
@@ -339,30 +354,56 @@ static const float2 kernel[244] = {
 static const int kernelOffsets[10] = { 0, 43, 65, 81, 130, 155, 168, 205, 224, 237 };
 static const int kernelLengths[10] = { 43, 65, 81, 130, 155, 168, 205, 224, 237, 244 };
 
+// The kernel used for the depth check in auto focus
 static const int depthCheckKernel = 0;
+
+// Threasholds for dilation
 static const float dilateMinThreshold = 0.1;
 static const float dilateMaxThreshold = 0.3;
 
-// Vertex shader, calculates depth for auto-focus and check each corner for menu check
-void Precalc_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD, out float dist: MIN_DEPTH, out bool menu : MENU)
+
+// Calculates the focus, and applies smothing if using auto focus
+float CalcFocus_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target{
+
+	float focusTo;
+	float focusFrom = tex2D(focusTexPrevSampler, float2(0.0, 0.0)).x;
+
+	if (autoFocus) {
+		if (mouseFocus) {
+			focusTo = ReShade::GetLinearizedDepth(mouse_point / float2(BUFFER_WIDTH, BUFFER_HEIGHT));
+		}
+		else {
+			focusTo = 1.0;
+			for (int i = kernelOffsets[depthCheckKernel]; i < kernelLengths[depthCheckKernel]; i++) {
+				float depth = ReShade::GetLinearizedDepth(focusPoint + kernel[i] * focusPointSize);
+				focusTo = min(focusTo, depth);
+			}
+		}
+
+		if (focusTo == focusFrom)
+			return focusTo;
+
+		float change = (focusTo - focusFrom) / abs(focusTo - focusFrom);
+		change *= (abs(focusTo - focusFrom) > frametime / focusSpeed) ? (frametime / focusSpeed) : abs(focusTo - focusFrom);
+
+		return clamp(focusFrom + change, 0.0, 1.0);
+	}
+	else
+		return focusDist;
+}
+
+// Copy the focus information for the current frame into the buffer for the next frame
+float CopyFocus_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target{
+	return tex2D(focusTexSampler, texcoord.xy).x;
+}
+
+// Vertex shader for CoC, reads focus information and performs menu check (disables blur during full screen menu)
+void DOF_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD, out float dist: MIN_DEPTH, nointerpolation out bool menu : MENU)
 {
 	float menuCheck = ReShade::GetLinearizedDepth(float2(0, 0)) * ReShade::GetLinearizedDepth(float2(1, 0)) * ReShade::GetLinearizedDepth(float2(0, 1)) * ReShade::GetLinearizedDepth(float2(1, 1));
 	menu = menuCheck == 0.0 || menuCheck == 1.0;
 
-	if (autoFocus && !menu) {
-		if (mouseFocus) {
-			dist = ReShade::GetLinearizedDepth(mouse_point / float2(BUFFER_WIDTH, BUFFER_HEIGHT));
-		}
-		else {
-			dist = 1.0;
-			for (int i = kernelOffsets[depthCheckKernel]; i < kernelLengths[depthCheckKernel]; i++) {
-				float depth = ReShade::GetLinearizedDepth(focusPoint + kernel[i] * focusPointSize);
-				dist = min(dist, depth);
-			}
-		}
-	}
-	else
-		dist = focusDist;
+	dist = tex2D(focusTexSampler, float2(0.0, 0.0)).x;
 
 	texcoord.x = (id == 2) ? 2.0 : 0.0;
 	texcoord.y = (id == 1) ? 2.0 : 0.0;
@@ -370,7 +411,7 @@ void Precalc_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out
 }
 
 // Pixel shader for CoC, calculates CoC and stores to cocBuffer
-float Calc_CoC_PS(float4 position : SV_Position, float2 texcoord : TexCoord, float dist : MIN_DEPTH, bool menu : MENU) : SV_Target
+float Calc_CoC_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord, in float dist : MIN_DEPTH, nointerpolation in bool menu : MENU) : SV_Target
 {
 	if (menu)
 		return 0.0;
@@ -389,7 +430,7 @@ float Calc_CoC_PS(float4 position : SV_Position, float2 texcoord : TexCoord, flo
 }
 
 // Blur pixel shader, applies blur to final image, reads CoC value from cocBuffer
-float3 BlurEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target
+float3 BlurEffect_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord) : SV_Target
 {
 	float size = tex2Dfetch(cocSampler, position.xy).r;
 
@@ -414,10 +455,10 @@ float3 BlurEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) 
     return	col;
 }
 
-// Blur pixel shader, applies blur to final image, reads CoC value from cocBuffer
-float3 DilateEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : SV_Target
+// Dilation pixel shader, applies dilation to final image, reads CoC value from cocBuffer
+float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord) : SV_Target
 {
-	float size = tex2Dfetch(cocSampler, position).r;
+	float size = tex2Dfetch(cocSampler, position.xy).r;
 
 	if (size == 0.0)
 		discard;
@@ -426,7 +467,7 @@ float3 DilateEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord
 	float3 maxCol;
 
 	for (int i = kernelOffsets[blurType]; i < kernelLengths[blurType]; i++) {
-		float3 col = tex2Dfetch(ReShade::BackBuffer, position + kernel[i] * size * ReShade::ScreenSize).rgb;
+		float3 col = tex2Dfetch(ReShade::BackBuffer, position.xy + kernel[i] * size * ReShade::ScreenSize).rgb;
 		float val = dot(col, float3(0.21, 0.72, 0.07));
 		if (val > maxVal) {
 			maxVal = val;
@@ -434,17 +475,29 @@ float3 DilateEffect_PS(float4 position : SV_Position, float2 texcoord : TexCoord
 		}
 	}
 
-	if (showFocusArea && abs(length((position - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
+	if (showFocusArea && abs(length((position.xy - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
 		maxCol *= float3(4.0, 4.0, 4.0);
 
-	return lerp(tex2Dfetch(ReShade::BackBuffer, position).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
+	return lerp(tex2Dfetch(ReShade::BackBuffer, position.xy).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
 }
 
 technique DOF < ui_tooltip = "DOF which blurs the background or foreground while keeping the character in focus."; >
 {
 	pass
 	{
-		VertexShader = Precalc_VS;
+		VertexShader = PostProcessVS;
+		PixelShader = CalcFocus_PS;
+		RenderTarget = focusTex;
+	}
+	pass
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = CopyFocus_PS;
+		RenderTarget = focusTexPrev;
+	}
+	pass
+	{
+		VertexShader = DOF_VS;
 		PixelShader = Calc_CoC_PS;
 		RenderTarget = cocBuffer;
 	}
@@ -459,7 +512,19 @@ technique DOF_Paint < ui_tooltip = "DOF but uses a dilation effect to make the s
 {
 	pass
 	{
-		VertexShader = Precalc_VS;
+		VertexShader = PostProcessVS;
+		PixelShader = CalcFocus_PS;
+		RenderTarget = focusTex;
+	}
+	pass
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = CopyFocus_PS;
+		RenderTarget = focusTexPrev;
+	}
+	pass
+	{
+		VertexShader = DOF_VS;
 		PixelShader = Calc_CoC_PS;
 		RenderTarget = cocBuffer;
 	}
