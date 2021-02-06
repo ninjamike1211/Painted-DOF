@@ -402,7 +402,7 @@ void DOF_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out flo
 	float menuCheck = ReShade::GetLinearizedDepth(float2(0, 0)) * ReShade::GetLinearizedDepth(float2(1, 0)) * ReShade::GetLinearizedDepth(float2(0, 1)) * ReShade::GetLinearizedDepth(float2(1, 1));
 	menu = menuCheck == 0.0 || menuCheck == 1.0;
 
-	dist = tex2D(focusTexSampler, float2(0.0, 0.0)).x;
+	dist = tex2Dfetch(focusTexSampler, float2(0.0, 0.0)).x;
 
 	texcoord.x = (id == 2) ? 2.0 : 0.0;
 	texcoord.y = (id == 1) ? 2.0 : 0.0;
