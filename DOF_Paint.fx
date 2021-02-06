@@ -466,11 +466,14 @@ float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : Te
 	float3 maxCol;
 
 	for (int i = kernelOffsets[blurType]; i < kernelLengths[blurType]; i++) {
-		float3 col = tex2Dfetch(ReShade::BackBuffer, position.xy + kernel[i] * size * ReShade::ScreenSize).rgb;
-		float val = dot(col, float3(0.21, 0.72, 0.07));
-		if (val > maxVal) {
-			maxVal = val;
-			maxCol = col;
+		float coc = tex2Dfetch(cocSampler, position.xy + kernel[i] * size * ReShade::ScreenSize).r;
+		if (coc >= size) {
+			float3 col = tex2Dfetch(ReShade::BackBuffer, position.xy + kernel[i] * size * ReShade::ScreenSize).rgb;
+			float val = dot(col, float3(0.21, 0.72, 0.07));
+			if (val > maxVal) {
+				maxVal = val;
+				maxCol = col;
+			}
 		}
 	}
 
