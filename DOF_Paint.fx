@@ -1,3 +1,4 @@
+#define RESHADE_QUINT_EFFECT_DEPTH_REQUIRE
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 
@@ -60,17 +61,17 @@ uniform bool disableNear <
 	ui_tooltip = "Disables foreground bluring, so that only objects in the foreground are always in focus.\nCan improve performance depending on the scene.";
 > = false;
 
-uniform bool showFocusArea <
-	ui_type = "radio";
-	ui_label = "Show focus area";
-	ui_tooltip = "Highlights the area of the screen being searched by auto-focus.";
-> = false;
-
 uniform bool mouseFocus <
 	ui_type = "radio";
 	ui_label = "Focus on mouse position";
 	ui_tooltip = "Focuses on whatever object is being hovered over by the mouse. Requires auto-focus to be enabled.\nIs not affected by focus area size, but otherwise has no impact on performance.";
 > = false;
+
+
+// Preprocessor Definitions
+#ifndef DOF_SHOW_FOCUS_AREA
+ #define DOF_SHOW_FOCUS_AREA	           0	  //[0 or 1]
+#endif
 
 // Buffer which stores CoC values
 texture cocBuffer{ Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;  Format = R16F; MipLevels = 0;};
@@ -431,6 +432,11 @@ float Calc_CoC_PS(in float4 position : SV_Position, in float2 texcoord : TexCoor
 // Blur pixel shader, applies blur to final image, reads CoC value from cocBuffer
 float3 BlurEffect_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord) : SV_Target
 {
+	#if(DOF_SHOW_FOCUS_AREA != 0)
+		if (abs(length((texcoord - focusPoint) * ReShade::ScreenSize)) <= focusPointSize)
+			return tex2D(ReShade::BackBuffer, texcoord).rgb * 4.0;
+	#endif
+
 	float size = tex2Dfetch(cocSampler, position.xy).r;
 
 	if (size == 0.0)
@@ -448,15 +454,17 @@ float3 BlurEffect_PS(in float4 position : SV_Position, in float2 texcoord : TexC
 
 	col /= weight;
 
-	if (showFocusArea && abs(length((texcoord - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
-		col *= float3(4.0, 4.0, 4.0);
-
     return	col;
 }
 
 // Dilation pixel shader, applies dilation to final image, reads CoC value from cocBuffer
 float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord) : SV_Target
 {
+	#if(DOF_SHOW_FOCUS_AREA != 0)
+		if (abs(length((texcoord - focusPoint) * ReShade::ScreenSize)) <= focusPointSize)
+			return tex2D(ReShade::BackBuffer, texcoord).rgb * 4.0;
+	#endif
+
 	float size = tex2Dfetch(cocSampler, position.xy).r;
 
 	if (size == 0.0)
@@ -476,9 +484,6 @@ float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : Te
 			}
 		}
 	}
-
-	if (showFocusArea && abs(length((position.xy - focusPoint) * float2(BUFFER_WIDTH, BUFFER_HEIGHT))) <= focusPointSize)
-		maxCol *= float3(4.0, 4.0, 4.0);
 
 	return lerp(tex2Dfetch(ReShade::BackBuffer, position.xy).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
 }
