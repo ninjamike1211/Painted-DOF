@@ -73,6 +73,10 @@ uniform bool mouseFocus <
  #define DOF_SHOW_FOCUS_AREA	           0	  //[0 or 1]
 #endif
 
+#ifndef DOF_PAINT_COC_FILTER
+ #define DOF_PAINT_COC_FILTER	           1	  //[0 or 1]
+#endif
+
 // Buffer which stores CoC values
 texture cocBuffer{ Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT;  Format = R16F; MipLevels = 0;};
 sampler2D cocSampler{ Texture = cocBuffer; MipFilter = POINT;};
@@ -343,12 +347,12 @@ static const float2 kernel[244] = {
 
 	// Artsy
 	float2(0. / BUFFER_WIDTH, 0. / BUFFER_HEIGHT),
-	float2(1. / BUFFER_WIDTH, 0. / BUFFER_HEIGHT),
-	float2(-1. / BUFFER_WIDTH, 0. / BUFFER_HEIGHT),
 	float2(0. / BUFFER_WIDTH, 1. / BUFFER_HEIGHT),
 	float2(0. / BUFFER_WIDTH, -1. / BUFFER_HEIGHT),
-	float2(1. / BUFFER_WIDTH, 1. / BUFFER_HEIGHT),
-	float2(-1. / BUFFER_WIDTH, -1. / BUFFER_HEIGHT),
+	float2(.866025 / BUFFER_WIDTH, .5 / BUFFER_HEIGHT),
+	float2(-.866025 / BUFFER_WIDTH, .5 / BUFFER_HEIGHT),
+	float2(.866025 / BUFFER_WIDTH, -.5 / BUFFER_HEIGHT),
+	float2(-.866025 / BUFFER_WIDTH, -.5 / BUFFER_HEIGHT),
 };
 
 // kernelOffsets stores the starting index of each kernel, and kernelLengths stores the ending index + 1 for each kernel
@@ -475,14 +479,19 @@ float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : Te
 
 	for (int i = kernelOffsets[blurType]; i < kernelLengths[blurType]; i++) {
 		float coc = tex2Dfetch(cocSampler, position.xy + kernel[i] * size * ReShade::ScreenSize).r;
+
+		#if(DOF_PAINT_COC_FILTER != 0)
 		if (coc >= size) {
+		#endif
 			float3 col = tex2Dfetch(ReShade::BackBuffer, position.xy + kernel[i] * size * ReShade::ScreenSize).rgb;
 			float val = dot(col, float3(0.21, 0.72, 0.07));
 			if (val > maxVal) {
 				maxVal = val;
 				maxCol = col;
 			}
+		#if(DOF_PAINT_COC_FILTER != 0)
 		}
+		#endif
 	}
 
 	return lerp(tex2Dfetch(ReShade::BackBuffer, position.xy).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
