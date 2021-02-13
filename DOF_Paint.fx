@@ -402,7 +402,7 @@ float CopyFocus_PS(float4 position : SV_Position, float2 texcoord : TexCoord) : 
 }
 
 // Vertex shader for CoC, reads focus information and performs menu check (disables blur during full screen menu)
-void DOF_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD, out float dist: MIN_DEPTH, nointerpolation out bool menu : MENU)
+void DOF_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD, out float dist: MIN_DEPTH, nointerpolation out int menu : MENU)
 {
 	float menuCheck = ReShade::GetLinearizedDepth(float2(0, 0)) * ReShade::GetLinearizedDepth(float2(1, 0)) * ReShade::GetLinearizedDepth(float2(0, 1)) * ReShade::GetLinearizedDepth(float2(1, 1));
 	menu = menuCheck == 0.0 || menuCheck == 1.0;
@@ -415,9 +415,9 @@ void DOF_VS(in uint id : SV_VertexID, out float4 position : SV_Position, out flo
 }
 
 // Pixel shader for CoC, calculates CoC and stores to cocBuffer
-float Calc_CoC_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord, in float dist : MIN_DEPTH, nointerpolation in bool menu : MENU) : SV_Target
+float Calc_CoC_PS(in float4 position : SV_Position, in float2 texcoord : TexCoord, in float dist : MIN_DEPTH, nointerpolation in int menu : MENU) : SV_Target
 {
-	if (menu)
+	if (menu == 1)
 		return 0.0;
 
 	float depth = ReShade::GetLinearizedDepth(texcoord);
@@ -494,6 +494,7 @@ float3 DilateEffect_PS(in float4 position : SV_Position, in float2 texcoord : Te
 		#endif
 	}
 
+	//return maxCol;
 	return lerp(tex2Dfetch(ReShade::BackBuffer, position.xy).rgb, maxCol, smoothstep(dilateMinThreshold, dilateMaxThreshold, maxVal));
 }
 
